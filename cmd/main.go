@@ -19,8 +19,6 @@ func main() {
 
 	mux.HandleFunc("GET /movies/{movieID}/seats", bookingHandler.ListSeats)
 	mux.HandleFunc("POST /movies/{movieID}/seats/{seatID}/hold", bookingHandler.HoldSeat)
-	mux.HandleFunc("POST /movies/{movieID}/seats/{seatID}/confirm", bookingHandler.ConfirmSeat)
-	mux.HandleFunc("POST /movies/{movieID}/seats/{seatID}/cancel", bookingHandler.CancelSeat)
 	mux.HandleFunc("PUT /sessions/{sessionID}/confirm", bookingHandler.ConfirmSession)
 	mux.HandleFunc("DELETE /sessions/{sessionID}", bookingHandler.CancelSession)
 

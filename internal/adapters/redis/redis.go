@@ -16,6 +16,6 @@ func NewClient(addr string) *goredis.Client {
 		log.Fatalf("Could not connect to Redis: %v", err)
 		return nil
 	}
-	log.Println("Connected to Redis at ", client.Options().Addr)
+	log.Printf("Connected to Redis at %s\n", client.Options().Addr)
 	return client
 }

@@ -2,6 +2,7 @@ package booking
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -20,7 +21,7 @@ func (h *handler) ListSeats(w http.ResponseWriter, r *http.Request) {
 	movieID := r.PathValue("movieID")
 	bookings, err := h.svc.ListBookings(movieID)
 	if err != nil {
-		utils.WriteJSON(w, http.StatusInternalServerError, nil)
+		utils.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to list seats"})
 		return
 	}
 
@@ -57,7 +58,11 @@ func (h *handler) HoldSeat(w http.ResponseWriter, r *http.Request) {
 		UserID:  req.UserID,
 	})
 	if err != nil {
-		utils.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		if errors.Is(err, ErrSeatAlreadyBooked) {
+			utils.WriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
+		utils.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hold seat"})
 		return
 	}
 
@@ -76,38 +81,16 @@ func (h *handler) HoldSeat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *handler) ConfirmSeat(w http.ResponseWriter, r *http.Request) {
-	movieID := r.PathValue("movieID")
-	seatID := r.PathValue("seatID")
-
-	err := h.svc.ConfirmSeat(movieID, seatID)
-	if err != nil {
-		utils.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	utils.WriteJSON(w, http.StatusOK, nil)
-}
-
-func (h *handler) CancelSeat(w http.ResponseWriter, r *http.Request) {
-	movieID := r.PathValue("movieID")
-	seatID := r.PathValue("seatID")
-
-	err := h.svc.CancelSeat(movieID, seatID)
-	if err != nil {
-		utils.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	utils.WriteJSON(w, http.StatusOK, nil)
-}
-
 func (h *handler) ConfirmSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
 
 	err := h.svc.ConfirmSession(sessionID)
 	if err != nil {
-		utils.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		if errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrSeatNotFound) {
+			utils.WriteJSON(w, http.StatusGone, map[string]string{"error": err.Error()})
+			return
+		}
+		utils.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to confirm session"})
 		return
 	}
 
@@ -119,7 +102,11 @@ func (h *handler) CancelSession(w http.ResponseWriter, r *http.Request) {
 
 	err := h.svc.CancelSession(sessionID)
 	if err != nil {
-		utils.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		if errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrSeatNotFound) {
+			utils.WriteJSON(w, http.StatusGone, map[string]string{"error": err.Error()})
+			return
+		}
+		utils.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to cancel session"})
 		return
 	}
 

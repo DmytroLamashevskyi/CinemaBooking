@@ -7,6 +7,8 @@ import (
 
 var (
 	ErrSeatAlreadyBooked = errors.New("seat already booked")
+	ErrSessionNotFound   = errors.New("session not found or expired")
+	ErrSeatNotFound      = errors.New("seat reservation not found or expired")
 )
 
 type SeatsInfo struct {
@@ -27,11 +29,8 @@ type Booking struct {
 }
 
 type BookingStore interface {
-	Book(b Booking) (Booking, error)
 	ListBookings(movieID string) ([]Booking, error)
 	Hold(b Booking) (Booking, error)
-	Confirm(movieID string, seatID string) (Booking, error)
-	Cancel(movieID string, seatID string) (Booking, error)
 	ConfirmSession(sessionID string) (Booking, error)
 	CancelSession(sessionID string) (Booking, error)
 }

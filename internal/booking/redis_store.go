@@ -24,97 +24,62 @@ func sessionKey(id string) string {
 	return fmt.Sprintf("session:%s", id)
 }
 
-func (s *RedisStore) Book(b Booking) (Booking, error) {
-	session, err := s.hold(b)
-	if err != nil {
-		return b, err
-	}
-	return session, nil
-}
-
 func (s *RedisStore) hold(b Booking) (Booking, error) {
 	id := uuid.New().String()
 	now := time.Now()
 	ctx := context.Background()
 	key := fmt.Sprintf("seat:%s:%s", b.MovieID, b.SeatID)
+	
 	b.ID = id
-	val, _ := json.Marshal(b)
+	b.Status = "held"
+	b.ExpiresAt = now.Add(defaultTTL)
+	
+	val, err := json.Marshal(b)
+	if err != nil {
+		return Booking{}, err
+	}
 
-	result := s.client.SetArgs(ctx, key, val, redis.SetArgs{
+	cmd := s.client.SetArgs(ctx, key, val, redis.SetArgs{
 		Mode: "NX",
 		TTL:  defaultTTL,
 	})
-	if result.Val() != "OK" {
+	if err := cmd.Err(); err != nil {
+		if err == redis.Nil {
+			return Booking{}, ErrSeatAlreadyBooked
+		}
+		return Booking{}, err
+	}
+	if cmd.Val() != "OK" {
 		return Booking{}, ErrSeatAlreadyBooked
 	}
 
-	s.client.Set(ctx, sessionKey(id), key, defaultTTL)
+	if err := s.client.Set(ctx, sessionKey(id), key, defaultTTL).Err(); err != nil {
+		s.client.Del(ctx, key)
+		return Booking{}, err
+	}
 
-	return Booking{
-		ID:        id,
-		MovieID:   b.MovieID,
-		SeatID:    b.SeatID,
-		UserID:    b.UserID,
-		Status:    "held",
-		ExpiresAt: now.Add(defaultTTL),
-	}, nil
+	return b, nil
 }
 
 func (s *RedisStore) Hold(b Booking) (Booking, error) {
 	return s.hold(b)
 }
 
-func (s *RedisStore) Confirm(movieID string, seatID string) (Booking, error) {
-	ctx := context.Background()
-	key := fmt.Sprintf("seat:%s:%s", movieID, seatID)
-	val, err := s.client.Get(ctx, key).Result()
-	if err != nil {
-		return Booking{}, err
-	}
-
-	var b Booking
-	if err := json.Unmarshal([]byte(val), &b); err != nil {
-		return Booking{}, err
-	}
-
-	b.Status = "confirmed"
-	newVal, _ := json.Marshal(b)
-	err = s.client.Set(ctx, key, newVal, 0).Err() // persist
-	if err != nil {
-		return Booking{}, err
-	}
-
-	s.client.Del(ctx, sessionKey(b.ID))
-	return b, nil
-}
-
-func (s *RedisStore) Cancel(movieID string, seatID string) (Booking, error) {
-	ctx := context.Background()
-	key := fmt.Sprintf("seat:%s:%s", movieID, seatID)
-	val, err := s.client.Get(ctx, key).Result()
-	if err != nil {
-		return Booking{}, err
-	}
-
-	var b Booking
-	if err := json.Unmarshal([]byte(val), &b); err != nil {
-		return Booking{}, err
-	}
-
-	s.client.Del(ctx, key)
-	s.client.Del(ctx, sessionKey(b.ID))
-	return b, nil
-}
-
 func (s *RedisStore) ConfirmSession(sessionID string) (Booking, error) {
 	ctx := context.Background()
 	seatKey, err := s.client.Get(ctx, sessionKey(sessionID)).Result()
 	if err != nil {
+		if err == redis.Nil {
+			return Booking{}, ErrSessionNotFound
+		}
 		return Booking{}, err
 	}
 
 	val, err := s.client.Get(ctx, seatKey).Result()
 	if err != nil {
+		if err == redis.Nil {
+			return Booking{}, ErrSeatNotFound
+		}
 		return Booking{}, err
 	}
 
@@ -124,7 +89,10 @@ func (s *RedisStore) ConfirmSession(sessionID string) (Booking, error) {
 	}
 
 	b.Status = "confirmed"
-	newVal, _ := json.Marshal(b)
+	newVal, err := json.Marshal(b)
+	if err != nil {
+		return Booking{}, err
+	}
 	err = s.client.Set(ctx, seatKey, newVal, 0).Err() // persist
 	if err != nil {
 		return Booking{}, err
@@ -138,11 +106,17 @@ func (s *RedisStore) CancelSession(sessionID string) (Booking, error) {
 	ctx := context.Background()
 	seatKey, err := s.client.Get(ctx, sessionKey(sessionID)).Result()
 	if err != nil {
+		if err == redis.Nil {
+			return Booking{}, ErrSessionNotFound
+		}
 		return Booking{}, err
 	}
 
 	val, err := s.client.Get(ctx, seatKey).Result()
 	if err != nil {
+		if err == redis.Nil {
+			return Booking{}, ErrSeatNotFound
+		}
 		return Booking{}, err
 	}
 
@@ -151,8 +125,12 @@ func (s *RedisStore) CancelSession(sessionID string) (Booking, error) {
 		return Booking{}, err
 	}
 
-	s.client.Del(ctx, seatKey)
-	s.client.Del(ctx, sessionKey(sessionID))
+	if err := s.client.Del(ctx, seatKey).Err(); err != nil {
+		return Booking{}, err
+	}
+	if err := s.client.Del(ctx, sessionKey(sessionID)).Err(); err != nil {
+		return Booking{}, err
+	}
 	return b, nil
 }
 
